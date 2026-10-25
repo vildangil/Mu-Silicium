@@ -44,4 +44,7 @@ UniXNURun (
   IN UNIXNU_HOST  Host
   );
 
+// DIZI read-only EDK2->UniXNU application handoff smoke test.
+EFI_STATUS EFIAPI UniXNUProbePlatform (VOID);
+
 #endif

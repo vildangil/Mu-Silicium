@@ -76,6 +76,8 @@
   gQcomPkgTokenSpaceGuid.PcdPlatformType|"LA"
 
 [LibraryClasses]
+  UniXNULib|UniXNUPkg/Library/UniXNULib/UniXNULib.inf
+  FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
   #
   # Memory Libraries
   #
@@ -93,6 +95,9 @@
 
 [Components]
   DiziBootPkg/BootSelector/BootSelector.inf
+  # UniXNU core UEFI application — only manually invoked by DIZI BootSelector.
+  # Do not add UniXNUDxe; it would create Boot#### / update BootOrder.
+  UniXNUPkg/Application/UniXNU/UniXNU.inf
   #
   # ACPI Tables
   #

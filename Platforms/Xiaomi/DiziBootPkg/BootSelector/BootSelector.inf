@@ -38,3 +38,4 @@
   gEfiLoadedImageProtocolGuid
   gEfiDriverBindingProtocolGuid
   gEfiGraphicsOutputProtocolGuid
+  gEfiFirmwareVolume2ProtocolGuid

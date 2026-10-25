@@ -16,6 +16,7 @@
 // UniXNUDxe.c.
 //
 STATIC CONST CHAR16  mFirmwareMarker[] = L"unixnu:firmware";
+STATIC CONST CHAR16  mDiziProbeMarker[] = L"dizi:probe";
 
 EFI_STATUS
 EFIAPI
@@ -28,12 +29,24 @@ UniXNUApplicationEntry (
   UNIXNU_HOST             Host;
   EFI_STATUS                 Status;
 
+  Loaded = NULL;
   Host = UniXNUHostApplication;
   if (!EFI_ERROR (gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded)) &&
       (Loaded->LoadOptions != NULL) && (Loaded->LoadOptionsSize >= sizeof (mFirmwareMarker)) &&
       (CompareMem (Loaded->LoadOptions, mFirmwareMarker, sizeof (mFirmwareMarker)) == 0))
   {
     Host = UniXNUHostFirmware;
+  }
+
+  // Early diagnostic handoff for SM7435: link the real UniXNU library,
+  // report firmware protocols, then return without reading a payload or
+  // entering XNU. The full loader remains disabled until ADT is ported.
+  if ((Loaded != NULL) &&
+      (Loaded->LoadOptions != NULL) &&
+      (Loaded->LoadOptionsSize == sizeof(mDiziProbeMarker)) &&
+      (CompareMem(Loaded->LoadOptions, mDiziProbeMarker,
+                  sizeof(mDiziProbeMarker)) == 0)) {
+    return UniXNUProbePlatform();
   }
 
   Status = UniXNURun (ImageHandle, Host);

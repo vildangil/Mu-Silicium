@@ -18,7 +18,7 @@
 
 // Replaced at build time by the Arch workflow. Never reuse an unverified
 // image from an older diagnostic run: the current ID is visible in the UI.
-#define DIZI_BUILD_STAMP "R4-MU-NATIVE"
+#define DIZI_BUILD_STAMP "R5-UNIXNU-PROBE"
 #include <Protocol/DevicePath.h>
 #include <Protocol/SimpleTextInEx.h>
 #include <Protocol/SimpleTextIn.h>
@@ -28,10 +28,18 @@
 #include <Protocol/PciIo.h>
 #include <Protocol/PciRootBridgeIo.h>
 #include <Protocol/LoadedImage.h>
+#include <Protocol/FirmwareVolume2.h>
+#include <Pi/PiFirmwareFile.h>
 #include <Protocol/DriverBinding.h>
 
 #define ANDROID_LOADER L"\\EFI\\DIZI\\ANDROIDAA64.EFI"
 #define DARWIN_LOADER  L"\\EFI\\DIZI\\XNUAA64.EFI"
+// Pinned upstream UniXNU application FILE_GUID; used only for read-only
+// probe dispatch by explicit physical menu choice.
+STATIC EFI_GUID mUniXnuAppGuid = {
+  0x9b665204,0xa133,0x47a2,{0x93,0x96,0x9e,0x2b,0x37,0x0a,0x4e,0x25}
+};
+STATIC CHAR16 mDiziUniXnuProbeOptions[] = L"dizi:probe";
 #define TIMEOUT_TICKS 1200  // 60s idle timeout (50ms per timer tick)
 #define TICK_100NS 500000ULL
 
@@ -245,6 +253,63 @@ StartExternalEfi (EFI_HANDLE Parent, CONST CHAR16 *Name)
     return Status;
   }
   FreePool (Handles);
+  return Last;
+}
+
+STATIC
+EFI_STATUS
+StartEmbeddedUniXnu (IN EFI_HANDLE Parent)
+{
+  EFI_HANDLE *Handles = NULL;
+  EFI_STATUS Status, Last = EFI_NOT_FOUND;
+  UINTN Count = 0, Index;
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol, &gEfiFirmwareVolume2ProtocolGuid,
+                  NULL, &Count, &Handles);
+  if (EFI_ERROR(Status)) return Status;
+
+  for (Index = 0; Index < Count; ++Index) {
+    EFI_FIRMWARE_VOLUME2_PROTOCOL *Fv = NULL;
+    VOID *Buffer = NULL;
+    UINTN Size = 0;
+    UINT32 Auth = 0;
+    EFI_HANDLE Child = NULL;
+    EFI_LOADED_IMAGE_PROTOCOL *Loaded = NULL;
+
+    Status = gBS->HandleProtocol (Handles[Index],
+                &gEfiFirmwareVolume2ProtocolGuid, (VOID **)&Fv);
+    if (EFI_ERROR(Status) || Fv == NULL) continue;
+    Status = Fv->ReadSection(Fv, &mUniXnuAppGuid, EFI_SECTION_PE32,
+                            0, &Buffer, &Size, &Auth);
+    if (EFI_ERROR(Status)) continue;
+    if (Buffer == NULL || Size == 0) {
+      if (Buffer != NULL) FreePool(Buffer);
+      Last = EFI_COMPROMISED_DATA;
+      break;
+    }
+    // The image comes from our own firmware volume, not removable media.
+    Status = gBS->LoadImage(FALSE, Parent, NULL, Buffer, Size, &Child);
+    FreePool(Buffer);
+    if (EFI_ERROR(Status)) { Last = Status; break; }
+
+    Status = gBS->HandleProtocol(Child, &gEfiLoadedImageProtocolGuid,
+                                 (VOID **)&Loaded);
+    if (EFI_ERROR(Status) || Loaded == NULL) {
+      Last = EFI_LOAD_ERROR;
+      (VOID)gBS->UnloadImage(Child);
+      break;
+    }
+    // The pinned upstream UniXNU app interprets this marker as a
+    // non-booting diagnostic. Never call its full menu until keyboard and
+    // handoff are verified. No Boot#### or partition writes are performed.
+    Loaded->LoadOptions = mDiziUniXnuProbeOptions;
+    Loaded->LoadOptionsSize = sizeof(mDiziUniXnuProbeOptions);
+    Last = gBS->StartImage(Child, NULL, NULL);
+    (VOID)gBS->UnloadImage(Child);
+    break;
+  }
+
+  FreePool(Handles);
   return Last;
 }
 
@@ -555,7 +620,7 @@ Render (UINTN Selected, CONST INPUT_STATE *Input)
 
   AsciiSPrint (MenuAndroid, sizeof(MenuAndroid), "%a ANDROID     [LOADER MISSING]",
               Selected == 0 ? ">" : " ");
-  AsciiSPrint (MenuXnu, sizeof(MenuXnu), "%a XNU/DARWIN  [LOADER MISSING]",
+  AsciiSPrint (MenuXnu, sizeof(MenuXnu), "%a UNIXNU PROBE [EFI]",
               Selected == 1 ? ">" : " ");
   AsciiSPrint (MenuExit, sizeof(MenuExit), "%a RETURN TO FIRMWARE",
               Selected == 2 ? ">" : " ");
@@ -916,11 +981,17 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
     if (Action == 2) {
       if (Selected == 2) break;
+      if (Selected == 1) {
+        Status = StartEmbeddedUniXnu(ImageHandle);
+        Print(L"\r\n[dizi] UniXNU EFI probe returned: %r\r\n", Status);
+        gBS->Stall(1200000);
+        IdleTicks = 0;
+        Render(Selected, &Input);
+        continue;
+      }
       gBS->CloseEvent (Tick);
-      Status = StartExternalEfi (
-                 ImageHandle, Selected == 0 ? ANDROID_LOADER : DARWIN_LOADER
-                 );
-      Print (L"\r\nMissing/failed EFI OS loader: %r\r\n", Status);
+      Status = StartExternalEfi (ImageHandle, ANDROID_LOADER);
+      Print (L"\r\nMissing/failed Android EFI loader: %r\r\n", Status);
       Print (L"No partition changes. Returning to BDS.\r\n");
       gBS->Stall (3000000);
       return Status;

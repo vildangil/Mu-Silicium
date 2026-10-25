@@ -87,6 +87,8 @@ READ_LOCK_STATUS   = TRUE
   #}
 
   INF DiziBootPkg/BootSelector/BootSelector.inf
+  # UniXNU EFI probe is passive until selected; no NVRAM boot registration.
+  INF UniXNUPkg/Application/UniXNU/UniXNU.inf
 
   !include QcomPkg/Extra.fdf.inc
 
