@@ -31,7 +31,7 @@ class NativeDiziSelectorTests(unittest.TestCase):
         self.assertIn("  gEfiPciRootBridgeIoProtocolGuid", BDS_INF)
         self.assertIn("  DiziSpmiArbRead.c", INF)
         self.assertIn("  DiziPmicKeys.c", INF)
-        self.assertIn('#define DIZI_BUILD_STAMP "R4-MU-NATIVE"', C)
+        self.assertIn('#define DIZI_BUILD_STAMP "R5-UNIXNU-PROBE"', C)
         self.assertIn("DiziPmicSampleKeys (&Input.PmicKeys, &Input.Arbiter", C)
         self.assertNotIn("overlay_ksn_dizi", DSC + FDF + BDS)
 

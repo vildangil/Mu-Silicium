@@ -13,6 +13,7 @@ import zlib
 from pathlib import Path
 
 MENU_GUID = uuid.UUID("8b56dab9-a18d-40a4-97ec-dfcc72ee1f66")
+UNIXNU_GUID = uuid.UUID("9b665204-a133-47a2-9396-9e2b370a4e25")
 LZMA_GUID = uuid.UUID("ee4e5898-3914-4259-9d6e-dc7bd79403cf")
 
 def check(condition, why):
@@ -36,7 +37,7 @@ def scan_ffs(fv: bytes):
         yield (uuid.UUID(bytes_le=data[:16]), data[18], fv[pos+24:pos+n], pos, n)
         pos = (pos+n+7) & ~7
 
-def verify(blob: bytes, required_selector_string: str | None = None):
+def verify(blob: bytes, required_selector_string: str | None = None, require_unixnu: bool = False):
     check(blob[:8] == b"ANDROID!", "not an Android boot image")
     size, ramdisk, _os, hlen = struct.unpack_from("<4I", blob, 8)
     check((hlen, struct.unpack_from("<I", blob, 40)[0]) == (1584,4),
@@ -72,10 +73,11 @@ def verify(blob: bytes, required_selector_string: str | None = None):
     check(idx>=40, "no inner FV header")
     inner=inner[idx-40:]
     found=[]
+    unixnu_found=[]
     for guid, ftype, data, pos, length in scan_ffs(inner):
-        if guid!=MENU_GUID:
+        if guid not in (MENU_GUID, UNIXNU_GUID):
             continue
-        check(ftype==0x09, "menu FFS is not an EFI application")
+        check(ftype==0x09, "selector/UniXNU FFS is not an EFI application")
         # Inspect nested section headers to find a PE32 image.
         q=0
         matched=False
@@ -91,20 +93,34 @@ def verify(blob: bytes, required_selector_string: str | None = None):
                       "invalid ARM64 PE")
                 machine=struct.unpack_from("<H",pe,off+4)[0]
                 check(machine==0xaa64, "not an AARCH64 EFI binary")
-                if required_selector_string is not None:
+                if guid == MENU_GUID and required_selector_string is not None:
                     marker = required_selector_string.encode("ascii")
                     check(marker in pe,
                           "compiled selector PE32 is missing required build tag "
                           + repr(required_selector_string))
+                if guid == UNIXNU_GUID and require_unixnu:
+                    # The dizi-specific early return marker is UTF-16LE in
+                    # the real upstream UniXNU application image.
+                    check("dizi:probe".encode("utf-16le") in pe,
+                          "UniXNU EFI lacks the safe dizi:probe entry point")
                 matched=True
             q=(q+n+3)&~3
-        check(matched, "selector has no PE32 image section")
-        found.append({"ffs_offset":pos,"ffs_bytes":length,"pe_machine":"AARCH64"})
+        check(matched, "application has no PE32 image section")
+        detail={"ffs_offset":pos,"ffs_bytes":length,"pe_machine":"AARCH64"}
+        if guid == MENU_GUID:
+            found.append(detail)
+        else:
+            unixnu_found.append(detail)
     check(len(found)==1, f"expected exactly one selector FFS, got {len(found)}")
+    if require_unixnu:
+        check(len(unixnu_found)==1,
+              f"expected exactly one UniXNU EFI FFS, got {len(unixnu_found)}")
     return {"boot_sha256":hashlib.sha256(blob).hexdigest(),
             "device":"dizi","android_boot_version":4,
             "firmware_bytes":len(firmware),"dtb_bytes":len(dtb),
             "selector":found[0],"selector_in_inner_fv":True,
+            "unixnu":unixnu_found[0] if unixnu_found else None,
+            "unixnu_in_inner_fv":len(unixnu_found)==1,
             "verified_on_hardware":False,"android_xnu_chainload":False,
             "required_selector_string":required_selector_string}
 
@@ -114,8 +130,11 @@ def main():
     a.add_argument("--report",type=Path)
     a.add_argument("--require-selector-string",
                    help="ASCII marker that must be present inside compiled selector PE32")
+    a.add_argument("--require-unixnu", action="store_true",
+                   help="require a real AArch64 UniXNU app with dizi probe marker in FV")
     args=a.parse_args()
-    result=verify(args.boot_img.read_bytes(), args.require_selector_string)
+    result=verify(args.boot_img.read_bytes(), args.require_selector_string,
+                  args.require_unixnu)
     print(json.dumps(result,indent=2))
     if args.report:
         args.report.parent.mkdir(parents=True,exist_ok=True)
