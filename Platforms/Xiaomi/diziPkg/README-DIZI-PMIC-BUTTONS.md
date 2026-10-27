@@ -38,3 +38,39 @@ device-specific BDS/console fixes from Mu commit
 `39fbbc20885325044cfeaf8428efb7267e0bbe35`.
 The newer GEN3 key masks have not yet been confirmed in a successful
 physical test.
+
+## Standalone R4 button baseline
+
+The latest independently successful native-hosted build is
+[GitHub Actions run #40231973841](https://github.com/vildangil/Mu-Silicium/actions/runs/40231973841)
+(25 October 2026, source `a7c6638`). Its Actions artifact
+`dizi-native-r4-40231973841` contains an image and a matching UEFI FD.
+CI verified compilation and binary structure only; it did **not** verify
+physical button input on a tablet.
+
+The native R4 path is separate from `vildangil/UniXNU-Dizi-Ruan`'s
+public firmware-only workflow, which pins the older Mu revision
+`39fbbc20885325044cfeaf8428efb7267e0bbe35`. Simply changing its
+Mu checkout to this R4 branch is unsafe because the native BDS launches
+DiziBootSelector, not the UniXNU application, and the integrations can
+conflict. Compare and port the key sampling code into UniXNU separately
+after checking the physical input status in R4.
+
+For a *previously validated* temporary fastboot-boot path only, test the
+R4 image without flashing Android partitions, and record these live rows
+while pressing and releasing **each** key:
+
+- `BUTTONS:...` and `DEP:.../5`
+- `PON:...`, `RAW:...`, `PWR:...`, `DN:...`
+- `GPIO1:...`, `RAW:...`, `UP:...`, `ERR:...`
+- `LAST KEY: ... SCAN=... CHAR=...`
+
+These distinguish native PMIC read failures from unrecognized key scan
+codes. Power and Volume Down bit masks, valid APID ownership and physical
+behavior remain unverified on the test device. Observer READ command
+writes the arbiter command register; it is **not** a pure read-only MMIO
+operation. Do not substitute borrowed-device PMIC/SPMI drivers.
+
+The `.github/workflows/active_devices.yml` in this experimental branch
+is **manual-only** (`workflow_dispatch`); it does not rebuild after push.
+The unrelated upstream general-purpose workflow on `main` is unchanged.
