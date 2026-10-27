@@ -1,19 +1,7 @@
 name: DIZI native EDK2 / Ubuntu
 # Reuse the repository's existing workflow. Build ONLY Redmi Pad Pro (dizi).
-# This experimental branch builds after changes; main stays manual-only after merge.
+# Explicit manual dispatch only. Never start from push or pull request.
 on:
-  push:
-    branches:
-      - dizi/native-pmic-buttons-20261025
-    paths:
-      - "Platforms/Xiaomi/DiziBootPkg/**"
-      - "Platforms/Xiaomi/diziPkg/**"
-      - "tools/test_dizi_native_integration.py"
-      - "tools/verify_dizi_native_fv.py"
-      - "tools/verify_dizi_fd_boot_pair.py"
-      - "build_uefi.py"
-      - "build_active_devices.sh"
-      - ".github/workflows/active_devices.yml"
   workflow_dispatch:
 
 permissions:
